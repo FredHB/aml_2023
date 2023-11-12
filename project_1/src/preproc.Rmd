@@ -1,0 +1,161 @@
+---
+title: "data preparation task 1"
+author: "Frederik Bennhoff"
+date: "2023-11-10"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Data & Packages
+
+The purpose of this markdown document is to explore and clean data for the first submission task for the class *Advanced Machine Learning*.
+
+```{r}
+rm(list = ls())
+require(tidyverse)
+require(glmnet)
+path = "~/git/aml_course/project_1"
+setwd(path)
+dir.create('data/processed/')
+X_test <- read_csv("data/X_test.csv")
+X_train <- read_csv("data/X_train.csv")
+Y_train <- read_csv("data/Y_train.csv")
+```
+
+# Data Preparation
+
+Define functions for later use.
+
+```{r}
+# function to print the share of NA observations.
+na_share = function(x) {
+  bool = is.na(x)
+  sum(bool)/length(bool)
+}
+
+# function to print the count of NA observations.
+na_count = function(x) {
+  bool = is.na(x)
+  sum(bool)
+}
+
+# Apply the Hampel filter for outlier detection, return counts
+outlier_count = function(x, g) {
+  med = median(x, na.rm = T)
+  mad = median( abs(x - med), na.rm = T )
+  hampel_lower = med - g * mad
+  hampel_upper = med + g * mad
+  
+  bool = (x > hampel_upper) | (x < hampel_lower)
+  
+  sum(bool, na.rm = T)  
+}
+
+# Apply the Hampel filter for outlier detection, return IDs
+outlier_ids = function(x, g) {
+  med = median(x, na.rm = T)
+  mad = median( abs(x - med), na.rm = T )
+  hampel_lower = med - g * mad
+  hampel_upper = med + g * mad
+  
+  bool = (x > hampel_upper) | (x < hampel_lower)
+  
+  return(which(bool))
+}
+
+# function to generate an indicator variable that shows whether a value is an outlier
+generate_indicators_for_outliers = function(x, g) {
+  ids = outlier_ids(x, g)
+  x_outlier = vector(length=length(x))
+  x_outlier[ids] = 1
+  return(x_outlier)
+}
+
+# take the whole dataset and create a bunch of indicator variables (if enough outliers)
+generate_outlier_variables = function(data, g, threshold) {
+  temp_data = data
+  for (i in 2:ncol(data)) {
+    name_str = paste0(colnames(data)[i], "_out")
+    temp_var = generate_indicators_for_outliers(pull(data, i), g)
+    if (sum(temp_var) > threshold) {
+      temp_data = add_column(temp_data, new_column = temp_var )  
+      colnames(temp_data)[ncol(temp_data)] = name_str
+    }
+  }
+  return(temp_data)
+}
+
+# impute median value for missings
+impute_median = function(x) {
+  med = median(x, na.rm = T)
+  x[is.na(x)] = med  
+  return(x)
+}
+```
+
+We obtain a summary table for each variable, to eyeball outlier counts and \# of missing values.
+
+```{r}
+summ_table = gather(X_train[, 2:833]) %>% group_by(key) %>% summarise(
+    mean = mean(value, na.rm = T),
+    sd = sd(value, na.rm = T),
+    outlier_count = outlier_count(value, 3),
+    #outlier_ids = outlier_ids(value, 5),
+    na_count = na_count(value)
+    )
+```
+
+We see that the distribution of extreme values with respect to the Hampel filter is extremely skewed. The problem here is that we cannot just delete outliers even if the filter applies a very loose criterion (i.e. large $g$), because some variables are highly skewed and thus too many observations are classified as outliers. On the other hand, the NA shares appear to be normally distributed across variables.
+
+```{r}
+par(mfrow = c(1, 2))
+hist(summ_table$outlier_count, main = "Histogram of outlier counts", xlab = "# outliers in a variable")
+
+hist(summ_table$na_count/length(X_train$id), main = "Histogram of NA shares", xlab = "share NAs in a variable")
+
+par(mfrow = c(1, 1))
+
+```
+
+We thus do two things. First, we create indicator variables that take the value 1 if an observation is an outlier with respect to the Hampel filter. Second, we impute missing values with the median value of each variable.
+
+```{r}
+g = 3 # Hampel filter value
+threshold = 20 # minimum value of outliers to create indicator
+
+## prepare training data
+X_train = generate_outlier_variables(X_train, g, threshold) # generate outlier variables and add to dataset
+X_train = map(X_train, impute_median) %>% as_tibble # impute medians
+
+## prepare test data
+X_test = generate_outlier_variables(X_test, g, threshold) 
+X_test = map(X_test, impute_median) %>% as_tibble 
+
+## export data
+write_csv(X_test, "../data/processed/X_test.csv")
+write_csv(X_train, "../data/processed/X_train.csv")
+write_csv(Y_train, "../data/processed/Y_train.csv")
+```
+
+Use the following pre-processing algorithm which considers some column $x = x_i$
+
+0.  Assume symmetric distribution of outliers and $x_{j}$, ignore missing values.
+1.  estimate mean of each variable using the median $x_M = x_{\lfloor n/2 \rfloor}$ and estimate the IQR $x_{IQR} = x_{\lfloor 3n/4 \rfloor} - x_{\lfloor n/4 \rfloor}$
+2.  Fit a normal or uniform distribution:
+    0.  For a normal distribution, calculate $\hat \mu = x_M$ and $\hat \sigma = x_{IQR} / (2 \Phi^{-1}(0.75))$.
+    1.  For a uniform distribution, calculate $\hat a = x_M - x_{IQR}, \hat b = x_M + x_{IQR}$. 
+    2.  Assess fit of normal and uniform distribution, choose the distribution with better fit. Call this $\hat F$.
+3.  Transform observations into $\tilde x := \Phi^{-1}(\hat F (x))$ . The non-outliers will thus approximately follow a standard normal distribution.
+
+With the transformed observations $\tilde x$, detect outliers and make imputations as follows:
+
+1.  First we learn more about the nature of outliers. If $\tilde x_{i,j} > 3$, what is the average value of $\tilde x_{i,k}$? Are they also outliers? This question is important since it tells us whether we are dealing with measurement error on specific variables, or whether we deal with ids for which all values are outliers. In the former case, we set the outlier values to \`\`\`NaN\`\`\`, in the latter, we drop the observation.
+
+2.  Using the repeated observations of columns, estimate a gaussian mixture model with two classes, $k=1$ for uncontaminated data and $k=2$ for outlier data. Assume that $\tilde x \sim N(0, \Sigma)$ if $k=1$ and $\tilde x \sim N(0, \tau I)$ if $k=2$ with $\Pr(k=1) = p$.
+
+3.  Discard observations that are outliers and impute missing observations, using MCM <https://www.biorxiv.org/content/10.1101/2019.12.20.884551v2.full>\
