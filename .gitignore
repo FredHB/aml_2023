@@ -1,0 +1,10 @@
+# ignore all folders and subfolders called data
+data/
+# ignore all folders and subfolders called data
+prompts/
+# ignore all folders and subfolders called data
+responses/
+# ignore all folders and subfolders called out
+out/
+
+.DS_Store
