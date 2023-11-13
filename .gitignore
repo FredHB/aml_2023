@@ -8,3 +8,5 @@ responses/
 out/
 
 .DS_Store
+.pdf
+.Rhistory
