@@ -1,5 +1,5 @@
 ---
-title: "data preparation task 1"
+title: "Data Preprocessing"
 author: "Frederik Bennhoff"
 date: "2023-11-10"
 output:
@@ -16,13 +16,12 @@ knitr::opts_knit$set(root.dir = '../')
 
 The purpose of this markdown document is to explore and clean data for the first submission task for the class *Advanced Machine Learning*.
 
-```{r, label = "import libraries"}
+```{r, label = "import libraries", results='hide', echo=FALSE, warning=FALSE, message=FALSE}
 rm(list = ls())
 require(tidyverse)
-require(glmnet)
 ```
 
-```{r, label = "load data"}
+```{r, label = "load data", results='hide', echo=FALSE,warning=FALSE, message=FALSE}
 #path = "~/git/aml_course/project_1"
 #setwd("../")
 dir.create('data/processed/', showWarnings = F)
@@ -39,7 +38,7 @@ load_data()
 
 Define functions for later use.
 
-```{r, label = "declare utility functions"}
+```{r, label = "declare utility functions", results='hide', echo=TRUE}
 # function to print the share of NA observations.
 na_share = function(x) {
   bool = is.na(x)
@@ -149,7 +148,7 @@ standardize = function(x, origin, robust = F) {
 
 We obtain a summary table for each variable, to eyeball outlier counts and \# of missing values.
 
-```{r, label = "generate a summary table for outliers and missingness"}
+```{r, label = "generate a summary table for outliers and missingness", results='hide', echo=FALSE}
 summ_table = gather(X_train[, 2:833]) %>% group_by(key) %>% summarise(
     mean = mean(value, na.rm = T),
     sd = sd(value, na.rm = T),
@@ -161,7 +160,7 @@ summ_table = gather(X_train[, 2:833]) %>% group_by(key) %>% summarise(
 
 We see that the distribution of extreme values with respect to the Hampel filter is extremely skewed. The problem here is that we cannot just delete outliers even if the filter applies a very loose criterion (i.e. large $g$), because some variables are highly skewed and thus too many observations are classified as outliers. On the other hand, the NA shares appear to be normally distributed across variables.
 
-```{r, label = "render outlier and NA histograms"}
+```{r, label = "render outlier and NA histograms", echo=FALSE}
 par(mfrow = c(1, 2))
 hist(summ_table$outlier_count, main = "Histogram of outlier counts", xlab = "# outliers in a variable")
 
@@ -181,7 +180,7 @@ However, in out final model, we additionally do a quantile transformation on all
 
 **Missing Values**: We impute missing values with the median value of each variable.
 
-```{r, label = 'append training and test data for data transformation'}
+```{r, label = 'append training and test data for data transformation', results='hide', echo=FALSE}
 # append test and training data and add a column indicating data origin
 # reson: easier to fit data transformation to "train" data and apply them to "test" data
 X_test$origin = "test"
@@ -192,7 +191,7 @@ X_full = X_full %>% select( -c("origin")) # drop origin column
 
 ```
 
-```{r, label = "create outlier indicators, winsorize outliers, impute median values"}
+```{r, label = "create outlier indicators, winsorize outliers, impute median values", results='hide', echo=FALSE}
 g = 3 # Hampel filter value for outlier classification
 threshold = 1 # minimum value of outliers to create indicator
 
@@ -215,12 +214,12 @@ X_full[init_names] = X_full[init_names] %>% map(function(x){winsorize_outliers(x
 X_full = map(X_full, function(x){impute_median(x, origin)}) %>% as_tibble
 ```
 
-```{r, label = 'split up data again'}
+```{r, label = 'split up data again', results='hide', echo=FALSE}
 X_test = X_full[origin == "test",]
 X_train = X_full[origin == "train",]
 ```
 
-```{r, label = "export data"}
+```{r, label = "export data", results='hide', echo=FALSE}
 ## export data
 write_csv(X_test, "./data/processed/X_test.csv")
 write_csv(X_train, "./data/processed/X_train.csv")
