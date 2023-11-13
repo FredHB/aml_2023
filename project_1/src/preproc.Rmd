@@ -181,38 +181,6 @@ However, in out final model, we additionally do a quantile transformation on all
 
 **Missing Values**: We impute missing values with the median value of each variable.
 
-```{r}
-# g = 3 # Hampel filter value for outlier classification
-# threshold = 1 # minimum value of outliers to create indicator
-# 
-# # drop columns without any variation in them
-# has_variation = X_train %>% map_vec(function(x){sd(x, na.rm = T)}) > 0
-# X_train = X_train[, has_variation]
-# X_test  = X_test[, has_variation]
-# 
-# # save column names of untransformed dataset
-# init_names = colnames(X_train)
-# init_names = init_names[2:length(init_names)]
-# 
-# ## prepare training data
-# # standardize columns
-# X_train[2:ncol(X_train)] <- map(X_train[2:ncol(X_train)], function(x){standardize(x, T)}) %>% as_tibble
-# # generate outlier variables and add to dataset
-# X_train = generate_outlier_variables(X_train, g, threshold, c('left', 'right'))
-# # winsorize outliers
-# X_train[init_names] = X_train[init_names] %>% map(function(x){winsorize_outliers(x,g)})
-# # impute medians
-# X_train = map(X_train, impute_median) %>% as_tibble
-# 
-# ## prepare test data
-# X_test[2:ncol(X_test)] <- map(X_test[2:ncol(X_test)], standardize) %>% as_tibble
-# X_test = generate_outlier_variables(X_test, g, threshold, c('left', 'right')) 
-# X_test[init_names] = X_test[init_names] %>% map(function(x){winsorize_outliers(x,g)})
-# X_test = map(X_test, impute_median) %>% as_tibble 
-
-
-```
-
 ```{r, label = 'append training and test data for data transformation'}
 # append test and training data and add a column indicating data origin
 # reson: easier to fit data transformation to "train" data and apply them to "test" data
