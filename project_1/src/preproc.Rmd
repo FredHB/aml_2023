@@ -9,27 +9,28 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = '../')
 ```
 
 # Load Data & Packages
 
 The purpose of this markdown document is to explore and clean data for the first submission task for the class *Advanced Machine Learning*.
 
-```{r}
+```{r, label = "import libraries"}
 rm(list = ls())
 require(tidyverse)
 require(glmnet)
 ```
 
-```{r}
+```{r, label = "load data"}
 #path = "~/git/aml_course/project_1"
-setwd("../")
+#setwd("../")
 dir.create('data/processed/', showWarnings = F)
 
 load_data = function(){
-  X_test <<- read_csv("data/X_test.csv")
-  X_train <<- read_csv("data/X_train.csv")
-  Y_train <<- read_csv("data/Y_train.csv")  
+  X_test <<- read_csv("./data/X_test.csv")
+  X_train <<- read_csv("./data/X_train.csv")
+  Y_train <<- read_csv("./data/Y_train.csv")  
 }
 load_data()
 ```
@@ -38,7 +39,7 @@ load_data()
 
 Define functions for later use.
 
-```{r}
+```{r, label = "declare utility functions"}
 # function to print the share of NA observations.
 na_share = function(x) {
   bool = is.na(x)
@@ -64,9 +65,9 @@ outlier_count = function(x, g) {
 }
 
 # Apply the Hampel filter for outlier detection, return IDs
-outlier_ids = function(x, g, type = 'both') {
-  med = median(x, na.rm = T)
-  mad = median( abs(x - med), na.rm = T )
+outlier_ids = function(x, g, origin, type = 'both') {
+  med = median(x[origin == "train"], na.rm = T)
+  mad = median( abs(x[origin == "train"] - med), na.rm = T )
   hampel_lower = med - g * mad
   hampel_upper = med + g * mad
   
@@ -82,17 +83,17 @@ outlier_ids = function(x, g, type = 'both') {
 }
 
 # function to generate an indicator variable that shows whether a value is an outlier
-generate_indicators_for_outliers = function(x, g, type = 'both') {
-  ids = outlier_ids(x, g, type)
+generate_indicators_for_outliers = function(x, g, origin, type = 'both') {
+  ids = outlier_ids(x, g, origin, type)
   x_outlier = vector(length=length(x))
   x_outlier[ids] = 1
   return(x_outlier)
 }
 
 # function to winsorize variable when taking outlier values
-winsorize_outliers = function(x, g) {
-  med = median(x, na.rm = T)
-  mad = median( abs(x - med), na.rm = T )
+winsorize_outliers = function(x, g, origin) {
+  med = median(x[origin == "train"], na.rm = T)
+  mad = median( abs(x[origin == "train"] - med), na.rm = T )
   hampel_lower = med - g * mad
   hampel_upper = med + g * mad
   
@@ -102,12 +103,12 @@ winsorize_outliers = function(x, g) {
 }
 
 # take the whole dataset and create a bunch of indicator variables for outliers (if enough outliers)
-generate_outlier_variables = function(data, g, threshold, types = c('both')) {
+generate_outlier_variables = function(data, g, threshold, types = c('both'), origin) {
   temp_data = data
   for (i in 2:ncol(data)) {
     for (type in types) {
       name_str = paste0(colnames(data)[i], "_out", "_", type)
-      temp_var = generate_indicators_for_outliers(pull(data, i), g, type)
+      temp_var = generate_indicators_for_outliers(pull(data, i), g, origin, type)
       if (sum(temp_var) > threshold) {
         temp_data = add_column(temp_data, new_column = temp_var )  
         colnames(temp_data)[ncol(temp_data)] = name_str
@@ -119,48 +120,48 @@ generate_outlier_variables = function(data, g, threshold, types = c('both')) {
 
 
 # impute median value for missings
-impute_median = function(x) {
-  med = median(x, na.rm = T)
+impute_median = function(x, origin) {
+  med = median(x[origin == "train"], na.rm = T)
   x[is.na(x)] = med  
   return(x)
 }
 
 # standardize a column
-standardize = function(x, robust = F) {
+standardize = function(x, origin, robust = F) {
 
   if (robust == T) {
-    iqr = IQR(x, na.rm = T)
+    iqr = IQR(x[origin == "train"], na.rm = T)
     if (iqr == 0) {
       return(NULL)
     }
-    temp = (x - median(x, na.rm = T)) / iqr
+    temp = (x - median(x[origin == "train"], na.rm = T)) / iqr
     return(temp)  
   }
   
-  sdev = sd(x, na.rm = T)
+  sdev = sd(x[origin == "train"], na.rm = T)
   if (sdev == 0) {
     return(NULL)
   }
-  temp = (x - mean(x, na.rm = T)) / sdev
+  temp = (x - mean(x[origin == "train"], na.rm = T)) / sdev
   return(temp)
 }
 ```
 
 We obtain a summary table for each variable, to eyeball outlier counts and \# of missing values.
 
-```{r}
+```{r, label = "generate a summary table for outliers and missingness"}
 summ_table = gather(X_train[, 2:833]) %>% group_by(key) %>% summarise(
     mean = mean(value, na.rm = T),
     sd = sd(value, na.rm = T),
     outlier_count = outlier_count(value, 4),
-    outlier_ids = outlier_ids(value, 4),
+    #outlier_ids = outlier_ids(value, 4),
     na_count = na_count(value)
     )
 ```
 
 We see that the distribution of extreme values with respect to the Hampel filter is extremely skewed. The problem here is that we cannot just delete outliers even if the filter applies a very loose criterion (i.e. large $g$), because some variables are highly skewed and thus too many observations are classified as outliers. On the other hand, the NA shares appear to be normally distributed across variables.
 
-```{r}
+```{r, label = "render outlier and NA histograms"}
 par(mfrow = c(1, 2))
 hist(summ_table$outlier_count, main = "Histogram of outlier counts", xlab = "# outliers in a variable")
 
@@ -181,54 +182,79 @@ However, in out final model, we additionally do a quantile transformation on all
 **Missing Values**: We impute missing values with the median value of each variable.
 
 ```{r}
+# g = 3 # Hampel filter value for outlier classification
+# threshold = 1 # minimum value of outliers to create indicator
+# 
+# # drop columns without any variation in them
+# has_variation = X_train %>% map_vec(function(x){sd(x, na.rm = T)}) > 0
+# X_train = X_train[, has_variation]
+# X_test  = X_test[, has_variation]
+# 
+# # save column names of untransformed dataset
+# init_names = colnames(X_train)
+# init_names = init_names[2:length(init_names)]
+# 
+# ## prepare training data
+# # standardize columns
+# X_train[2:ncol(X_train)] <- map(X_train[2:ncol(X_train)], function(x){standardize(x, T)}) %>% as_tibble
+# # generate outlier variables and add to dataset
+# X_train = generate_outlier_variables(X_train, g, threshold, c('left', 'right'))
+# # winsorize outliers
+# X_train[init_names] = X_train[init_names] %>% map(function(x){winsorize_outliers(x,g)})
+# # impute medians
+# X_train = map(X_train, impute_median) %>% as_tibble
+# 
+# ## prepare test data
+# X_test[2:ncol(X_test)] <- map(X_test[2:ncol(X_test)], standardize) %>% as_tibble
+# X_test = generate_outlier_variables(X_test, g, threshold, c('left', 'right')) 
+# X_test[init_names] = X_test[init_names] %>% map(function(x){winsorize_outliers(x,g)})
+# X_test = map(X_test, impute_median) %>% as_tibble 
+
+
+```
+
+```{r, label = 'append training and test data for data transformation'}
+# append test and training data and add a column indicating data origin
+# reson: easier to fit data transformation to "train" data and apply them to "test" data
+X_test$origin = "test"
+X_train$origin = "train"
+X_full = add_row(X_test, X_train)
+origin = X_full$origin # sample origin vector
+X_full = X_full %>% select( -c("origin")) # drop origin column
+
+```
+
+```{r, label = "create outlier indicators, winsorize outliers, impute median values"}
 g = 3 # Hampel filter value for outlier classification
 threshold = 1 # minimum value of outliers to create indicator
 
-# drop columns without any variation in them
-has_variation = X_train %>% map_vec(function(x){sd(x, na.rm = T)}) > 0
-X_train = X_train[, has_variation]
-X_test  = X_test[, has_variation]
+# drop columns without any variation in the training data
+has_variation = X_full %>% map_vec(function(x){sd(x[origin == "train"], na.rm = T)}) > 0
+X_full = X_full[, has_variation]
 
 # save column names of untransformed dataset
-init_names = colnames(X_train)
+init_names = colnames(X_full)
 init_names = init_names[2:length(init_names)]
 
 ## prepare training data
 # standardize columns
-X_train[2:ncol(X_train)] <- map(X_train[2:ncol(X_train)], function(x){standardize(x, T)}) %>% as_tibble
+X_full[2:ncol(X_full)] <- map(X_full[2:ncol(X_full)], function(x){standardize(x, origin, T)}) %>% as_tibble
 # generate outlier variables and add to dataset
-X_train = generate_outlier_variables(X_train, g, threshold, c('left', 'right'))
+X_full = generate_outlier_variables(X_full, g, threshold, c('left', 'right'), origin)
 # winsorize outliers
-X_train[init_names] = X_train[init_names] %>% map(function(x){winsorize_outliers(x,g)})
+X_full[init_names] = X_full[init_names] %>% map(function(x){winsorize_outliers(x, g, origin)})
 # impute medians
-X_train = map(X_train, impute_median) %>% as_tibble
-
-## prepare test data
-X_test[2:ncol(X_test)] <- map(X_test[2:ncol(X_test)], standardize) %>% as_tibble
-X_test = generate_outlier_variables(X_test, g, threshold, c('left', 'right')) 
-X_test[init_names] = X_test[init_names] %>% map(function(x){winsorize_outliers(x,g)})
-X_test = map(X_test, impute_median) %>% as_tibble 
-
-## export data
-write_csv(X_test, "../data/processed/X_test.csv")
-write_csv(X_train, "../data/processed/X_train.csv")
-write_csv(Y_train, "../data/processed/Y_train.csv")
+X_full = map(X_full, function(x){impute_median(x, origin)}) %>% as_tibble
 ```
 
-Use the following pre-processing algorithm which considers some column $x = x_i$
+```{r, label = 'split up data again'}
+X_test = X_full[origin == "test",]
+X_train = X_full[origin == "train",]
+```
 
-0.  Assume symmetric distribution of outliers and $x_{j}$, ignore missing values.
-1.  estimate mean of each variable using the median $x_M = x_{\lfloor n/2 \rfloor}$ and estimate the IQR $x_{IQR} = x_{\lfloor 3n/4 \rfloor} - x_{\lfloor n/4 \rfloor}$
-2.  Fit a normal or uniform distribution:
-    0.  For a normal distribution, calculate $\hat \mu = x_M$ and $\hat \sigma = x_{IQR} / (2 \Phi^{-1}(0.75))$.
-    1.  For a uniform distribution, calculate $\hat a = x_M - x_{IQR}, \hat b = x_M + x_{IQR}$. 
-    2.  Assess fit of normal and uniform distribution, choose the distribution with better fit. Call this $\hat F$.
-3.  Transform observations into $\tilde x := \Phi^{-1}(\hat F (x))$ . The non-outliers will thus approximately follow a standard normal distribution.
-
-With the transformed observations $\tilde x$, detect outliers and make imputations as follows:
-
-1.  First we learn more about the nature of outliers. If $\tilde x_{i,j} > 3$, what is the average value of $\tilde x_{i,k}$? Are they also outliers? This question is important since it tells us whether we are dealing with measurement error on specific variables, or whether we deal with ids for which all values are outliers. In the former case, we set the outlier values to \`\`\`NaN\`\`\`, in the latter, we drop the observation.
-
-2.  Using the repeated observations of columns, estimate a gaussian mixture model with two classes, $k=1$ for uncontaminated data and $k=2$ for outlier data. Assume that $\tilde x \sim N(0, \Sigma)$ if $k=1$ and $\tilde x \sim N(0, \tau I)$ if $k=2$ with $\Pr(k=1) = p$.
-
-3.  Discard observations that are outliers and impute missing observations, using MCM <https://www.biorxiv.org/content/10.1101/2019.12.20.884551v2.full>\
+```{r, label = "export data"}
+## export data
+write_csv(X_test, "./data/processed/X_test.csv")
+write_csv(X_train, "./data/processed/X_train.csv")
+write_csv(Y_train, "./data/processed/Y_train.csv")
+```
