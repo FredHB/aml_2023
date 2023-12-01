@@ -63,21 +63,33 @@ if __name__ == "__main__":
     # Parse the arguments
     args = parser.parse_args()
 
+    ## Load data and labels
     data_folder = "data/processed/"
     labels = pd.read_csv(data_folder+'y_train.csv', index_col='id') # read labels
     data = pd.read_csv(data_folder+'/X_train.csv', index_col='id') # read data
     labels_array = labels['y'].to_numpy()
+    data_test = pd.read_csv(folder+'/X_test.csv', index_col='id') # read test data
+    labels_array_test = np.empty(data_test.shape[0], dtype=object) # dummy labels for test data
+    labels_array_test[:] = "test"
+    labels_array_test
 
     M = args.M # window size
     sampling_rate = 300
 
-    for index in range(30):
+    ## create and save training and test data
+    print("Creating training data: ")
+    for index in range(len(data)):
         if not (f"{(index+1)/len(data):.0%}" == f"{index/len(data):.0%}"):
             print(f"{index/len(data):.0%} ", end="")
         folder = f"data/spectrograms_{M}/"
-
         save_spectrograms(index, labels_array, data, folder, M=M, sampling_rate=sampling_rate, show=False);
+    
+    print("Creating test data: ")
+    for index in range(len(data_test)):
+        if not (f"{(index+1)/len(data_test):.0%}" == f"{index/len(data_test):.0%}"):
+            print(f"{index/len(data_test):.0%} ", end="")
+        save_spectrograms(index, labels_array_test, data, folder, M=256, sampling_rate=300, show=False);
 
-    # Save a text file with a completion message and timestamp
+    ## Save a text file with a completion message and timestamp
     with open(folder+"done.txt", 'w') as f:
         f.write('Done at {timestamp}'.format(timestamp=datetime.now()))
