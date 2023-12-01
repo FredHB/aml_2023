@@ -6,6 +6,9 @@ prompts/
 responses/
 # ignore all folders and subfolders called out
 out/
+# ignore all snakemake folders
+.snakemake
+
 
 .DS_Store
 .pdf
