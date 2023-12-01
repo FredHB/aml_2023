@@ -1,0 +1,11 @@
+# FILEPATH: /Users/fred/git/aml_course/project_2/Snakefile
+
+rule all:
+    input:
+        "data/spectrograms_256/done.txt"
+
+rule prepare_spectrograms:
+    output:
+        "data/spectrograms_{window_size}/done.txt"
+    shell:
+        "python src/prepare_stft_sgrams.py {wildcards.window_size}"
