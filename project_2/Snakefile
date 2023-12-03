@@ -2,10 +2,47 @@
 
 rule all:
     input:
-        "data/spectrograms_256/done.txt"
+        #"data/spectrograms_256/done.txt",
+        #"data/spectrograms_256/done_testdata.txt",
+        #"data/spectrograms_128/done.txt",
+        #"data/spectrograms_128/done_testdata.txt",
+        #"data/spectrograms_512/done.txt",
+        #"data/spectrograms_512/done_testdata.txt",
+        #"out/spectrograms_256/models/resnet18_10_tuned.pth",
+        #"out/spectrograms_128/models/resnet18_10_tuned.pth",
+        #"out/spectrograms_512/models/resnet18_10_tuned.pth",
+        "out/spectrograms_256/predictions/resnet18_10_tuned_testset.csv",
+        "out/spectrograms_256/predictions/resnet18_10_fit_testset.csv",
+        "out/spectrograms_128/predictions/resnet18_10_tuned_testset.csv",
+        "out/spectrograms_128/predictions/resnet18_10_fit_testset.csv",
+        "out/spectrograms_512/predictions/resnet18_10_tuned_testset.csv",
+        "out/spectrograms_512/predictions/resnet18_10_fit_testset.csv"
 
-rule prepare_spectrograms:
+rule prepare_spectrograms_training:
     output:
         "data/spectrograms_{window_size}/done.txt"
     shell:
-        "python src/prepare_stft_sgrams.py {wildcards.window_size}"
+        "python src/prepare_stft_sgrams.py {wildcards.window_size} 'training'"
+
+rule prepare_spectrograms_test:
+    output:
+        "data/spectrograms_{window_size}/done_testdata.txt"
+    shell:
+        "python src/prepare_stft_sgrams.py {wildcards.window_size} 'test'"
+
+rule train_model_on_spectrograms:
+    input:
+        "data/spectrograms_{window_size}/done.txt"
+    output:
+        "out/spectrograms_{window_size}/models/{model_name}.pth"
+    shell:
+        "papermill src/train_model.ipynb out/spectrograms_{wildcards.window_size}/trained.ipynb -p folder_name 'spectrograms_{wildcards.window_size}' -p valid_pct 0.1 -p seed 42" # latter argument are size of val set and seed
+
+rule make_predictions:
+    input:
+        "out/{model_data}/models/{model_name}.pth",
+        "data/{model_data}/done_testdata.txt"
+    output:
+        "out/{model_data}/predictions/{model_name}_testset.csv"
+    shell:
+        "python src/make_predictions.py --model '{wildcards.model_name}' --folder_name '{wildcards.model_data}'"
