@@ -1,23 +1,15 @@
 # FILEPATH: /Users/fred/git/aml_course/project_2/Snakefile
 
 rule all:
-    input:
-        #"data/spectrograms_256/done.txt",
-        #"data/spectrograms_256/done_testdata.txt",
-        #"data/spectrograms_128/done.txt",
-        #"data/spectrograms_128/done_testdata.txt",
-        #"data/spectrograms_512/done.txt",
-        #"data/spectrograms_512/done_testdata.txt",
-        #"out/spectrograms_256/models/resnet18_10_tuned.pth",
-        #"out/spectrograms_128/models/resnet18_10_tuned.pth",
-        #"out/spectrograms_512/models/resnet18_10_tuned.pth",
-        "out/spectrograms_256/predictions/resnet18_10_tuned_testset.csv",
-        "out/spectrograms_256/predictions/resnet18_10_fit_testset.csv",
-        "out/spectrograms_128/predictions/resnet18_10_tuned_testset.csv",
-        "out/spectrograms_128/predictions/resnet18_10_fit_testset.csv",
-        "out/spectrograms_512/predictions/resnet18_10_tuned_testset.csv",
-        "out/spectrograms_512/predictions/resnet18_10_fit_testset.csv"
+    input: # cel = cross entropy loss
+        ensemble_predictions_resnet34 = [f"out/ensemble/predictions/sgrams_resnet34-cel_{epochs}_tuned_bw{bw}_lgrams_resnet34-cel_{epochs}_tuned.csv" for bw in [128] for epochs in [5]]#,
+        # resnet18_on_spectrograms = [ f"out/spectrograms_{bw}/predictions/resnet18-cel_{epochs}_fit_testset.csv" for bw in [128, 256, 512] for epochs in [5, 10]],  
+        # resnet34_on_spectrograms = [ f"out/spectrograms_{bw}/predictions/resnet34-cel_{epochs}_tuned_testset.csv" for bw in [128, 256, 512] for epochs in [5, 10]],
+        # resnet18_on_lineplots = [ f"out/lineplots/predictions/resnet18-cel_{epochs}_fit_testset.csv" for epochs in [5, 10]],
+        # resnet34_on_lineplots = [ f"out/lineplots/predictions/resnet34-cel_{epochs}_tuned_testset.csv" for epochs in [5, 10]]
 
+
+### DATA RULES ###
 rule prepare_spectrograms_training:
     output:
         "data/spectrograms_{window_size}/done.txt"
@@ -30,14 +22,39 @@ rule prepare_spectrograms_test:
     shell:
         "python src/prepare_stft_sgrams.py {wildcards.window_size} 'test'"
 
+rule prepare_linegrams_training:
+    output:
+        "data/lineplots/done.txt"
+    shell:
+        "python src/prepare_linegrams.py 'training'"
+
+rule prepare_linegrams_test:
+    output:
+        "data/lineplots/done_testdata.txt"
+    shell:
+        "python src/prepare_linegrams.py 'test'"
+
+
+### TRAINING RULES ###
 rule train_model_on_spectrograms:
     input:
         "data/spectrograms_{window_size}/done.txt"
     output:
         "out/spectrograms_{window_size}/models/{model_name}.pth"
     shell:
-        "papermill src/train_model.ipynb out/spectrograms_{wildcards.window_size}/trained.ipynb -p folder_name 'spectrograms_{wildcards.window_size}' -p valid_pct 0.1 -p seed 42" # latter argument are size of val set and seed
+        "papermill src/train_model.ipynb out/spectrograms_{wildcards.window_size}/trained.ipynb -p folder_name 'spectrograms_{wildcards.window_size}' -p valid_pct 0.1 -p seed 42 -p prefix sg" # latter argument are size of val set and seed
 
+rule train_model_on_lineplots:
+    input:
+        "data/lineplots/done.txt"
+    output:
+        "out/lineplots/models/{model_name}.pth"
+    shell:
+        "papermill src/train_model.ipynb out/lineplots/trained.ipynb -p folder_name 'lineplots' -p valid_pct 0.1 -p seed 42 -p prefix lp" # latter argument are size of val set and seed
+
+
+### PREDICTION RULES ###
+# predictions on testset
 rule make_predictions:
     input:
         "out/{model_data}/models/{model_name}.pth",
@@ -46,3 +63,13 @@ rule make_predictions:
         "out/{model_data}/predictions/{model_name}_testset.csv"
     shell:
         "python src/make_predictions.py --model '{wildcards.model_name}' --folder_name '{wildcards.model_data}'"
+
+rule combine_sgrams_lgrams_predictions:
+    input:
+        "out/spectrograms_{window_size}/predictions/{model_name1}_testset.csv",
+        "out/lineplots/predictions/{model_name2}_testset.csv"
+    output:
+        "out/ensemble/predictions/sgrams_{model_name1}_bw{window_size}_lgrams_{model_name2}.csv"
+    shell:
+        "papermill src/combine_predictions.ipynb out/ensemble/predictions/combine_predictions.ipynb -p model1_window {wildcards.window_size} -p model1 '{wildcards.model_name1}' -p model2 '{wildcards.model_name2}'"
+        

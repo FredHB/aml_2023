@@ -32,7 +32,7 @@ def get_files_test_df(folder_name, subfolder_name, prefix):
     df = pd.DataFrame(filenames, columns=['filename'])
 
     # Split the 'filename' column on '_'
-    df[['sg', 'id', 'sequence']] = df['filename'].str.split('_', expand=True)
+    df[['prefix', 'id', 'sequence']] = df['filename'].str.split('_', expand=True)
 
     # Split the 'number2' column on '.' to remove the file extension
     df['sequence'] = df['sequence'].str.split('.', expand=True)[0]
@@ -40,8 +40,8 @@ def get_files_test_df(folder_name, subfolder_name, prefix):
     df.sort_values(by=['id', 'sequence'], inplace=True)
     df.reset_index(inplace=True, drop=True)
 
-    df = df[df.sg == prefix]
-    df.drop(columns=[prefix], inplace=True)
+    df = df[df.prefix == prefix]
+    df.drop(columns=["prefix"], inplace=True)
     df['id'] = df['id'].to_numpy(dtype=int)
     df['sequence'] = df['sequence'].to_numpy(dtype=int)
     files_df = pd.concat([files_df, df], ignore_index=True)
@@ -80,7 +80,7 @@ def aggregate_predictions_on_test_set(pred_prob, pred_class, files_df):
     predictions.drop("sequence", axis=1, inplace=True) # drop sequence column
     return predictions
 
-def get_predictions_testset(p, model, architecture, folder_name, dls):
+def get_predictions_testset(p, model, architecture, folder_name, dls, prefix):
     """
     Get predictions on the test set using a trained model.
 
@@ -105,7 +105,7 @@ def get_predictions_testset(p, model, architecture, folder_name, dls):
     learn.load(model)
 
     ## get dataframe of test files & dataloader
-    files_test_df = get_files_test_df(folder_name, "test", "sg") # obtain a dataframe of test files
+    files_test_df = get_files_test_df(folder_name, "test", prefix) # obtain a dataframe of test files
     test_dl = dls.test_dl(files_test_df) # make dataLoader for test data
 
     ## predict on test set
@@ -128,18 +128,23 @@ if __name__ == "__main__":
     parser.add_argument('--folder_name', type=str, required=True, help='Folder name')
     args = parser.parse_args()
 
+    if "spectro" in args.folder_name:
+        prefix = "sg"
+    if "lineplot" in args.folder_name:
+        prefix = "lp"
+
     model = args.model
     folder_name = args.folder_name
     architecture, epochs, approach = model.split("_")
-
+    architecture = architecture.split("-")[0]
+    
     os.chdir("src") # change directory to src
-
 
     p = Path("../out/"+folder_name)
 
     # load data
     dls = torch.load(p/f"models/{model}_dls.pkl")
-    predictions = get_predictions_testset(p, model, architecture, folder_name, dls)
+    predictions = get_predictions_testset(p, model, architecture, folder_name, dls, prefix)
 
     (p/"predictions").mkdir(parents=True, exist_ok=True)
     predictions.to_csv(p/"predictions"/f"{model}_testset.csv", index=False)
